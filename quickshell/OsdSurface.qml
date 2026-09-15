@@ -19,7 +19,6 @@
 import QtQuick
 import QtQuick.Effects
 import Quickshell
-import Quickshell.Io
 import Quickshell.Wayland
 import "voxtype-shared" as VT
 
@@ -45,9 +44,9 @@ PanelWindow {
     /// visual recipe layers, and optional custom QML package entry.
     property var style: null
 
-    /// Countdown to audio.max_duration_secs auto-stop.
-    /// maxDurationSecs syncs from ~/.config/voxtype/config.toml via
-    /// configWatcher below; recordingElapsed ticks while recording.
+    /// Countdown to the recording auto-stop limit. The daemon publishes
+    /// its effective audio.max_duration_secs (file < env < CLI) in the
+    /// runtime style JSON; QML never parses user config files directly.
     property int maxDurationSecs: 60
     property real recordingElapsed: 0
     readonly property real recordingRemaining: Math.max(0, maxDurationSecs - recordingElapsed)
@@ -111,17 +110,13 @@ PanelWindow {
 
     onCustomQmlUrlChanged: customQmlFailed = false
 
-    // Keep the countdown target in sync with audio.max_duration_secs.
-    FileView {
-        id: configWatcher
-        path: Quickshell.env("HOME") + "/.config/voxtype/config.toml"
-        watchChanges: true
-        printErrors: false
-        onLoaded: {
-            const m = (text() || "").match(/max_duration_secs\s*=\s*(\d+)/);
-            if (m) panel.maxDurationSecs = Math.max(5, parseInt(m[1], 10));
+    // Prefer the daemon-published effective limit; fall back to 60 when
+    // the style is unset or predates the max_duration_secs field.
+    function _syncMaxDuration() {
+        const v = style && style.config && style.config.max_duration_secs;
+        if (v !== undefined && v !== null && Number(v) > 0) {
+            maxDurationSecs = Math.max(5, Math.round(Number(v)));
         }
-        onFileChanged: reload()
     }
 
     // Ticks elapsed recording time; reset on state transitions below.
@@ -346,7 +341,11 @@ PanelWindow {
     }
 
     onAudioChanged: _syncCustomItem()
-    onStyleChanged: _syncCustomItem()
+    onStyleChanged: {
+        _syncMaxDuration();
+        _syncCustomItem();
+    }
+    Component.onCompleted: _syncMaxDuration()
     onOrbHaloEnergyChanged: {
         if (orbBackdropShadow.visible) {
             orbBackdropShadow.requestPaint();
