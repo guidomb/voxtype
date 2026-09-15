@@ -47,7 +47,13 @@ PanelWindow {
     /// Countdown to the recording auto-stop limit. The daemon publishes
     /// its effective audio.max_duration_secs (file < env < CLI) in the
     /// runtime style JSON; QML never parses user config files directly.
-    property int maxDurationSecs: 60
+    /// Declarative binding so late style loads and live updates propagate.
+    property int maxDurationSecs: {
+        const v = style && style.config ? style.config.max_duration_secs : undefined;
+        return v !== undefined && v !== null && Number(v) > 0
+            ? Math.max(5, Math.round(Number(v)))
+            : 60;
+    }
     property real recordingElapsed: 0
     readonly property real recordingRemaining: Math.max(0, maxDurationSecs - recordingElapsed)
     readonly property real recordingFraction: maxDurationSecs > 0 ? recordingRemaining / maxDurationSecs : 1.0
@@ -109,15 +115,6 @@ PanelWindow {
     readonly property real orbHaloEnergy: Math.min(1.0, Math.max(0.0, currentRms * 10.0 + currentPeak * 1.8))
 
     onCustomQmlUrlChanged: customQmlFailed = false
-
-    // Prefer the daemon-published effective limit; fall back to 60 when
-    // the style is unset or predates the max_duration_secs field.
-    function _syncMaxDuration() {
-        const v = style && style.config && style.config.max_duration_secs;
-        if (v !== undefined && v !== null && Number(v) > 0) {
-            maxDurationSecs = Math.max(5, Math.round(Number(v)));
-        }
-    }
 
     // Ticks elapsed recording time; reset on state transitions below.
     Timer {
@@ -341,11 +338,7 @@ PanelWindow {
     }
 
     onAudioChanged: _syncCustomItem()
-    onStyleChanged: {
-        _syncMaxDuration();
-        _syncCustomItem();
-    }
-    Component.onCompleted: _syncMaxDuration()
+    onStyleChanged: _syncCustomItem()
     onOrbHaloEnergyChanged: {
         if (orbBackdropShadow.visible) {
             orbBackdropShadow.requestPaint();
